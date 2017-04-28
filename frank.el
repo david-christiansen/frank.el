@@ -25,6 +25,7 @@
 ;;; Code:
 
 (require 'compile)
+(require 'font-lock)
 
 (defgroup frank '() "The Frank language" :group 'languages)
 
@@ -65,6 +66,11 @@
 (defface frank-definition-face
   '((t (:inherit 'font-lock-function-name-face)))
   "How to highlight Frank names in their definitions"
+  :group 'frank)
+
+(defface frank-interface-definition-face
+  '((t (:inherit 'frank-definition-face)))
+  "How to highlight Frank interface names in their definitions"
   :group 'frank)
 
 (defconst frank-keywords
@@ -108,11 +114,45 @@ The current line must be non-empty."
 (defvar frank--pos-stack nil
   "Internal position stack for font-lock.")
 
+(defvar font-lock-beg)
+(defvar font-lock-end)
+(defun frank-font-lock-extend-region ()
+  "Extend the font-lock region to cover an indented block."
+  (let ((my-beg font-lock-beg)
+        (my-end font-lock-end))
+    (save-excursion
+      (goto-char my-beg)
+      (when (not (bolp))
+        (beginning-of-line))
+      (while (and (not (bobp)) (looking-at-p " "))
+        (forward-line -1))
+      (setq my-beg (point))
+      (goto-char my-end)
+      (setq my-end (frank--next-non-indent))
+      (if (not (and (= my-beg font-lock-beg)
+                    (= my-end font-lock-end)))
+          (progn (setq font-lock-beg my-beg)
+                 (setq font-lock-end my-end)
+                 t)
+        nil))))
+
 (defun frank--update-kw ()
   "Update kws."
   (setq frank-font-lock-keywords
         `(
-          ;; Type declarations
+          ;; Interfaces get special highlighting
+          (,(rx bol (0+ ?\ )
+                (group-n 1 "interface")
+                (1+ ?\ )
+                (group-n 2 (1+ wordchar)) ;; the name
+                (0+ ?\ )
+                (group-n 3 "=")
+                )
+           (1 'frank-keyword-face)
+           (2 'frank-interface-definition-face)
+           (3 'frank-operator-face))
+
+          ;; Type declarations get special highlighting.
           (,(rx
              bol (0+ ?\ )
              (group-n 1 (1+ wordchar)) ;; The name
@@ -140,8 +180,7 @@ The current line must be non-empty."
             (progn (push (point) frank--pos-stack)
                    (frank--next-non-indent))
             (goto-char (pop frank--pos-stack))
-            (1 'frank-command-bracket-face))
-           )
+            (1 'frank-command-bracket-face)))
 
           ;; Operator syntax
           (,(regexp-opt '("->" "<" ">" ":" "|" ";") 'symbols) 0 'frank-operator-face)
@@ -151,11 +190,24 @@ The current line must be non-empty."
 
           ;; Ordinary keywords
           (,(regexp-opt frank-keywords  'words) 0 'frank-keyword-face)
+          )))
 
 
-          ))
-  )
-
+(defun frank-syntax-propertize-function (start end)
+  ;; Apply character syntax
+  (save-excursion
+    (let ((state 0))
+      (goto-char start)
+      (while (re-search-forward (rx (group-n 1 "'")
+                                    (or (seq "\\" anything)
+                                        (not (any ?\')))
+                                    (group-n 2"'"))
+                                end
+                                t)
+        (put-text-property (match-beginning 1) (match-end 1)
+                           'syntax-table (string-to-syntax "\""))
+        (put-text-property (match-beginning 2) (match-end 2)
+                           'syntax-table (string-to-syntax "\""))))))
 
 (defconst frank-syntax-table
   (let ((st (make-syntax-table)))
@@ -189,8 +241,6 @@ The current line must be non-empty."
     (modify-syntax-entry ?\" "\"" st)
     (modify-syntax-entry ?\\ "/" st)
 
-    ;; Chars
-    (modify-syntax-entry ?\' "\"" st)
     st))
 
 (defun frank--compilation-buffer-name-function (_mode)
@@ -221,8 +271,11 @@ Invokes `frank-mode-hook'."
   (set (make-local-variable 'indent-tabs-mode) nil)
   (set (make-local-variable 'comment-start) "--")
 
-  (setq font-lock-multiline t)
-  (setq font-lock-defaults '((frank-font-lock-keywords) nil nil)))
+  (add-hook 'font-lock-extend-region-functions 'frank-font-lock-extend-region)
+  (setq font-lock-multiline 'undecided)
+  (setq font-lock-defaults '((frank-font-lock-keywords) nil nil))
+  (set (make-local-variable 'syntax-propertize-function)
+       #'frank-syntax-propertize-function))
 
 (define-key frank-mode-map (kbd "C-c C-c") 'frank-load-buffer)
 
