@@ -58,11 +58,6 @@
   "How to highlight Frank command brackets"
   :group  'frank)
 
-(defface frank-type-arrow-face
-  '((t (:inherit 'font-lock-type-face)))
-  "How to highlight Frank command brackets"
-  :group  'frank)
-
 (defface frank-definition-face
   '((t (:inherit 'font-lock-function-name-face)))
   "How to highlight Frank names in their definitions"
@@ -128,7 +123,8 @@ The current line must be non-empty."
         (forward-line -1))
       (setq my-beg (point))
       (goto-char my-end)
-      (setq my-end (frank--next-non-indent))
+      (unless (frank--current-line-empty-p)
+        (setq my-end (frank--next-non-indent)))
       (if (not (and (= my-beg font-lock-beg)
                     (= my-end font-lock-end)))
           (progn (setq font-lock-beg my-beg)
@@ -140,47 +136,9 @@ The current line must be non-empty."
   "Update kws."
   (setq frank-font-lock-keywords
         `(
-          ;; Interfaces get special highlighting
-          (,(rx bol (0+ ?\ )
-                (group-n 1 "interface")
-                (1+ ?\ )
-                (group-n 2 (1+ wordchar)) ;; the name
-                (0+ ?\ )
-                (group-n 3 "=")
-                )
-           (1 'frank-keyword-face)
-           (2 'frank-interface-definition-face)
-           (3 'frank-operator-face))
 
-          ;; Type declarations get special highlighting.
-          (,(rx
-             bol (0+ ?\ )
-             (group-n 1 (1+ wordchar)) ;; The name
-             (0+ ?\ )
-             (group-n 2 ?\:) ;; the colon
-             )
-           (1 'frank-definition-face)
-           (2 'frank-operator-face)
-           (,(rx (group-n 1 (or "{" "}")))
-            (progn (push (point) frank--pos-stack)
-                   (frank--next-non-indent))
-            (goto-char (pop frank--pos-stack))
-            (1 'frank-braces-face))
-           (,(rx (group-n 1 (or "[" "]")))
-            (progn (push (point) frank--pos-stack)
-                   (frank--next-non-indent))
-            (goto-char (pop frank--pos-stack))
-            (1 'frank-effect-bracket-face))
-           (,(rx (not (any ?\-)) (group-n 1 "->"))
-            (progn (push (point) frank--pos-stack)
-                   (frank--next-non-indent))
-            (goto-char (pop frank--pos-stack))
-            (1 'frank-type-arrow-face))
-           (,(rx (not (any ?\-)) (group-n 1 (or "<" ">")))
-            (progn (push (point) frank--pos-stack)
-                   (frank--next-non-indent))
-            (goto-char (pop frank--pos-stack))
-            (1 'frank-command-bracket-face)))
+          (,(regexp-opt '("{" "}")) 0 'frank-braces-face)
+          (,(regexp-opt '("[" "]")) 0 'frank-effect-bracket-face)
 
           ;; Operator syntax
           (,(regexp-opt '("->" "<" ">" ":" "|" ";") 'symbols) 0 'frank-operator-face)
@@ -194,9 +152,10 @@ The current line must be non-empty."
 
 
 (defun frank-syntax-propertize-function (start end)
-  ;; Apply character syntax
+  "Apply syntax to characters between START and END while allowing ' in identifiers."
   (save-excursion
-    (let ((state 0))
+    (progn
+      ;; character delimiters
       (goto-char start)
       (while (re-search-forward (rx (group-n 1 "'")
                                     (or (seq "\\" anything)
@@ -207,7 +166,26 @@ The current line must be non-empty."
         (put-text-property (match-beginning 1) (match-end 1)
                            'syntax-table (string-to-syntax "\""))
         (put-text-property (match-beginning 2) (match-end 2)
-                           'syntax-table (string-to-syntax "\""))))))
+                           'syntax-table (string-to-syntax "\"")))
+      ;; <
+      (goto-char start)
+      (while (re-search-forward (rx (group-n 1 "<"))
+                                end
+                                t)
+        (put-text-property (match-beginning 1) (match-end 1)
+                           'syntax-table (string-to-syntax "(>"))
+        (put-text-property (match-beginning 1) (match-end 1)
+                           'font-lock-face 'frank-command-bracket-face))
+      ;; > but not ->
+      (goto-char start)
+      (while (re-search-forward (rx (not (any ?\-))
+                                    (group-n 1 ">"))
+                                end
+                                t)
+        (put-text-property (match-beginning 1) (match-end 1)
+                           'syntax-table (string-to-syntax ")<"))
+        (put-text-property (match-beginning 1) (match-end 1)
+                           'font-lock-face 'frank-command-bracket-face))      )))
 
 (defconst frank-syntax-table
   (let ((st (make-syntax-table)))
@@ -217,6 +195,8 @@ The current line must be non-empty."
     (modify-syntax-entry ?\) ")(" st)
     (modify-syntax-entry ?\[ "(]" st)
     (modify-syntax-entry ?\] ")[" st)
+    ;; < and > need special handling to avoid ->, so it's in the
+    ;; syntactic fontification function
 
     ;; Matching {}, but with nested comments
     (modify-syntax-entry ?\{ "(} 1bn" st)
@@ -231,7 +211,7 @@ The current line must be non-empty."
 
     ;; Operator chars (TODO: is this the right set of chars?)
     (mapc #'(lambda (ch) (modify-syntax-entry ch "_" st))
-          "!#$%&*+./<=>@^|~:")
+          "!#$%&*+./=@^|~:")
 
     ;; Whitespace is whitespace
     (modify-syntax-entry ?\  " " st)
