@@ -229,19 +229,29 @@ The current line must be non-empty."
   "Compute a buffer name for the Frank compilation buffer."
   "*frank*")
 
-(defun frank-load-buffer ()
-  "Load the current file into Frank in an Emacs compilation buffer."
-  (interactive)
+(defun frank--compile (options)
+  "Compile the current file with Frank, passing OPTIONS to the command."
   (let* ((filename (buffer-file-name))
          (dir (file-name-directory filename))
          (file (file-name-nondirectory filename))
-         (command (concat frank-executable " " file))
+         (command (concat frank-executable " " file " " options))
 
          ;; Emacs compile config stuff - these are special vars
          (compilation-buffer-name-function
           'frank--compilation-buffer-name-function)
          (default-directory dir))
     (compile command)))
+
+(defun frank-load-buffer-with-entry-point ()
+  "Load the current file into Frank in an Emacs compilation buffer, with a given entry point."
+  (interactive)
+  (let ((name (thing-at-point 'symbol t)))
+    (frank--compile (concat "--entry-point " name))))
+
+(defun frank-load-buffer ()
+  "Load the current file into Frank in an Emacs compilation buffer."
+  (interactive)
+  (frank--compile ""))
 
 ;;;###autoload
 (define-derived-mode frank-mode prog-mode "Frank"
@@ -259,7 +269,8 @@ Invokes `frank-mode-hook'."
   (set (make-local-variable 'syntax-propertize-function)
        #'frank-syntax-propertize-function))
 
-(define-key frank-mode-map (kbd "C-c C-c") 'frank-load-buffer)
+(define-key frank-mode-map (kbd "C-c C-l") 'frank-load-buffer)
+(define-key frank-mode-map (kbd "C-c C-c") 'frank-load-buffer-with-entry-point)
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.fk\\'" . frank-mode))
