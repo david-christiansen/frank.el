@@ -76,7 +76,7 @@
 
 (defun frank--current-line-empty-p ()
   "Non-nil if the current line is empty."
-  (string-match-p "^\\s-*$" (thing-at-point 'line))  )
+  (string-match-p "^\\s-*$" (thing-at-point 'line)))
 
 (defun frank--current-line-indentation ()
   "Nil if the current line is empty, or the number of spaces at the beginning of the line."
